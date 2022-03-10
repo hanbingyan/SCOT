@@ -1,0 +1,12 @@
+
+logs/.DS_Store
+.DS_Store
+*.pyc
+*.xml
+*.iml
+*.pickle
+*.txt
+.ipynb_checkpoints/SP-Figs-checkpoint.ipynb
+.ipynb_checkpoints/SP_Preprocessing-checkpoint.ipynb
+.ipynb_checkpoints/Vol-Figs-checkpoint.ipynb
+.ipynb_checkpoints/Untitled-checkpoint.ipynb
