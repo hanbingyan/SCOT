@@ -18,7 +18,6 @@ small_batch = 32
 seq_len = 20
 n_iter = 2000
 
-# radius = 0.05
 radius = 0.4
 lam_init = 1.0
 

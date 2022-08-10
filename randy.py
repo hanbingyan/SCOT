@@ -5,7 +5,7 @@ import pickle
 import os
 from datetime import datetime
 from nets import basis_net
-from config import *
+from sp_config import *
 from utils import *
 
 np.set_printoptions(formatter={'float': '{: 0.4f}'.format})
@@ -29,13 +29,13 @@ def train(SP_sampler, gen_Y, f, idx, causal):
 
     test_H = basis_net(in_size=in_feature, hid_size=4, out_size=out_feature, init=False, req_grad=causal).to(device)
     test_M = basis_net(in_size=in_feature, hid_size=4, out_size=out_feature, init=False, req_grad=causal).to(device)
-    var_hist = torch.zeros(n_iter, device=device)
-    lam_hist = torch.zeros(n_iter, device=device)
-    cost_hist = torch.zeros(n_iter, device=device)
-    f_mean = torch.zeros(n_iter, device=device)
+    var_hist = torch.zeros(n_iter, device='cpu')
+    lam_hist = torch.zeros(n_iter, device='cpu')
+    cost_hist = torch.zeros(n_iter, device='cpu')
+    f_mean = torch.zeros(n_iter, device='cpu')
     lam = torch.tensor([lam_init], requires_grad=True, device=device)
 
-    optimMH = optim.Adam(list(test_M.parameters()) + list(test_H.parameters()), lr = 5e-4)
+    optimMH = optim.Adam(list(test_M.parameters()) + list(test_H.parameters()), lr = 1e-3) #5e-4
     optimY = optim.Adam(list(gen_Y.parameters()), lr = 5e-6)
     velocity = 0.0
 
@@ -55,7 +55,7 @@ def train(SP_sampler, gen_Y, f, idx, causal):
         y = gen_Y(x+z).detach()
         # y = gen_Y(x+z).detach()
 
-        h = test_H(y)[:, :-1, :]
+        h = test_H(y)[:, :-1, :]*(1+100/(1+0.1*iter))
         wass_sam, pi = compute_sinkhorn(x, y, h, g, lam, f, c)
         in_loss = lam * radius + wass_sam + martingale_regularization(g)
         test_H.zero_grad()
@@ -77,9 +77,6 @@ def train(SP_sampler, gen_Y, f, idx, causal):
                 param.clamp_(-1.0, 1.0)
 
         #### Maximization over Generator ######
-        # sample from reference distribution
-        # sim_x_tar = pool.map(x_tar_helper, [k for k in range(small_batch)])
-        # x_tar = np.array(sim_x_tar)
         x_tar = SP_sampler(small_batch, end_idx=idx)
         input_x = x_tar[:, :-1, :]
         tar = np.log(x_tar[:, -1, 0])
@@ -88,36 +85,27 @@ def train(SP_sampler, gen_Y, f, idx, causal):
         g = test_M(x).detach()
         z = torch.randn_like(x)*1e-2
         y = gen_Y(x+z)
-        # y= gen_Y(x+z)
 
-        h = test_H(y)[:, :-1, :].detach()
+        h = test_H(y)[:, :-1, :]*(1+100/(1+0.1*iter))
         out_wass, out_pi = compute_sinkhorn(x, y, h, g, lam.detach(), f, c)
         out_loss = - out_wass
         gen_Y.zero_grad()
         out_loss.backward()
         optimY.step()
 
-        # with torch.no_grad():
-        #     for param in gen_Y.parameters():
-        #         param.add_(torch.randn(param.size(), device=device)/50)
-                # param.clamp_(-0.5, 0.5)
-
-        var_hist[iter] = -out_loss.item() + lam.detach()*radius
-        lam_hist[iter] = lam.item()
-        cost_hist[iter] = torch.sum(c(x,y)*out_pi) - 0.01*torch.sum(out_pi*torch.log(out_pi))
-        # f_mean[iter] = f(x)[:, -1, 0].mean().item()
-        f_mean[iter] = f(y).mean().item()
+        var_hist[iter] = -out_loss.cpu().detach() + lam.cpu().detach()*radius
+        lam_hist[iter] = lam.cpu().detach()
+        cost_hist[iter] = torch.sum(c(x,y)*out_pi).cpu().detach() - 0.01*torch.sum(out_pi*torch.log(out_pi)).cpu().detach()
+        f_mean[iter] = f(y).mean().cpu().detach()
         if iter % 50 == 0:
             # print(bcolors.RED, 'Rand f', f(y).detach(), bcolors.ENDC)
             # print('target', tar)
             print('iter', iter, 'dual', var_hist[iter].item(), 'lam', lam.item(),
                   'f mean', f_mean[iter], 'real mean', tar.mean(),
-                  'f > real', np.sum(f(y).detach().numpy() > tar.reshape(-1)),
-                  'cost', torch.sum(c(x, y)*out_pi).item(),
-                  'entropy', -entropy_const*torch.sum(out_pi*torch.log(out_pi)).item())
+                  'f > real', np.sum(f(y).cpu().detach().numpy() > tar.reshape(-1)),
+                  'cost', torch.sum(c(x, y) * out_pi).item(),
+                  'entropy', -entropy_const * torch.sum(out_pi * torch.log(out_pi)).item())
 
-            # print('H sum', h.abs().sum())
-            # print('G sum', g.abs().sum())
 
     sub_folder = "{}_{}_{}_{}{}-{}.{}.{}".format('spx_randy', causal, idx, datetime.now().strftime("%h"),
                                            datetime.now().strftime("%d"),
@@ -169,11 +157,11 @@ def train(SP_sampler, gen_Y, f, idx, causal):
 
     z = torch.randn_like(in_x) * 1e-3
     y = gen_Y(in_x + z)
-    predicted = f(y)
+    predicted = f(y).cpu()
 
     print('Target', tar)
     print('Robust predicted', predicted.detach())
-    nonrobust = f(in_x)
+    nonrobust = f(in_x).cpu()
     print('Non robust predicted', nonrobust.detach())
 
     print('Predicted mean', predicted.detach().numpy().mean(), 'real mean', tar.mean(),
@@ -181,7 +169,8 @@ def train(SP_sampler, gen_Y, f, idx, causal):
     print('Mean Absolute Error', np.sum(np.abs(predicted.detach().numpy() - tar.reshape(-1))))
     print('Correct direction', np.sum(np.multiply(predicted.detach().numpy(), tar.reshape(-1)) > 0))
 
-    print('Nonrobust mean', nonrobust.detach().numpy().mean(), 'Nonrobust > real', np.sum(nonrobust.detach().numpy() > tar.reshape(-1)))
+    print('Nonrobust mean', nonrobust.detach().numpy().mean(),
+          'Nonrobust > real', np.sum(nonrobust.detach().numpy() > tar.reshape(-1)))
     print('Nonrobust MAE', np.sum(np.abs(nonrobust.detach().numpy() - tar.reshape(-1))))
     print('Correct direction', np.sum(np.multiply(nonrobust.detach().numpy(), tar.reshape(-1)) > 0))
 

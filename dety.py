@@ -5,7 +5,7 @@ import pickle
 import os
 from datetime import datetime
 from nets import basis_net
-from config import *
+from sp_config import *
 from utils import martingale_regularization
 
 np.set_printoptions(formatter={'float': '{: 0.4f}'.format})
@@ -37,39 +37,14 @@ def beta(x, M, test_H, f, lam):
     # print(t)
     return y
 
-# def martingale_regularization(M, reg=10.0):
-#     '''
-#     Compute the regularization for the martingale condition (i.e. p_M).
-#     :param M: a tensor of shape (batch_size, sequence length), the output of an RNN applied to X
-#     :param reg_lam: scale parameter for first term in pM
-#     :return: A rank 0 tensors (i.e. scalers)
-#     This tensor represents the martingale penalization term denoted $p_M$
-#     '''
-#     m, t, j = M.shape
-#     # m = torch.tensor(m).type(torch.FloatTensor)
-#     # t = torch.tensor(m).type(torch.FloatTensor)
-#     # compute delta M matrix N
-#     N = M[:, 1:, :] - M[:, :-1, :]
-#     N_std = N / (torch.std(M, (0, 1)) + 1e-06)
-#
-#     # Compute \sum_i^m(\delta M)
-#     sum_m_std = torch.sum(N_std, 0) / m
-#     # Compute martingale penalty: P_M1 =  \sum_i^T(|\sum_i^m(\delta M)|) * scaling_coef
-#     sum_across_paths = torch.sum(torch.abs(sum_m_std)) / t
-#     # the total pM term
-#     pm = reg * sum_across_paths
-#     return pm
-
-
-
 def train(SP_sampler, f, idx, causal):
 
     test_H = basis_net(in_size=in_feature, hid_size=4, out_size=out_feature, init=False, req_grad=causal).to(device)
     test_M = basis_net(in_size=in_feature, hid_size=4, out_size=out_feature, init=True).to(device)
-    var_hist = torch.zeros(n_iter, device=device)
-    lam_hist = torch.zeros(n_iter, device=device)
-    cost_hist = torch.zeros(n_iter, device=device)
-    f_mean = torch.zeros(n_iter, device=device)
+    var_hist = torch.zeros(n_iter, device='cpu')
+    lam_hist = torch.zeros(n_iter, device='cpu')
+    cost_hist = torch.zeros(n_iter, device='cpu')
+    f_mean = torch.zeros(n_iter, device='cpu')
     lam = torch.tensor([lam_init], requires_grad=True, device=device)
 
     optimMH = optim.Adam(list(test_M.parameters()) + list(test_H.parameters()), lr = 1e-4)
@@ -107,11 +82,8 @@ def train(SP_sampler, f, idx, causal):
 
         with torch.no_grad():
             for param in test_M.parameters():
-                # param.add_(torch.randn(param.size(), device=device)/50)
                 param.clamp_(-0.2, 0.2)
-            # for param in test_H.parameters():
-                # param.add_(torch.randn(param.size(), device=device)/50)
-                # param.clamp_(-0.2, 0.2)
+
 
         var_hist[iter] = dual.item()
         lam_hist[iter] = lam.item()
@@ -122,7 +94,7 @@ def train(SP_sampler, f, idx, causal):
             # print('target', tar)
             print('iter', iter, 'dual', var_hist[iter].item(), 'lam', lam.item(),
                   'f mean', f_mean[iter], 'real mean', tar.mean(),
-                  'f > real', np.sum(f(y).detach().numpy() > tar.reshape(-1)),
+                  'f > real', np.sum(f(y).detach().cpu().numpy() > tar.reshape(-1)),
                   'cost', torch.sum(c(x,y)).item())
             # for name, param in gen_Y.named_parameters():
             #     print(name, param)
@@ -176,11 +148,11 @@ def train(SP_sampler, f, idx, causal):
 
     M = test_M(in_x)
     y = beta(in_x, M, test_H, f, lam.detach())
-    predicted = f(y)
+    predicted = f(y).cpu()
 
     print('Target', tar)
     print('Robust predicted', predicted.detach())
-    nonrobust = f(in_x)
+    nonrobust = f(in_x).cpu()
     print('Non robust predicted', nonrobust.detach())
 
     print('Predicted mean', predicted.detach().numpy().mean(), 'real mean', tar.mean(),
@@ -188,7 +160,8 @@ def train(SP_sampler, f, idx, causal):
     print('Mean Absolute Error', np.sum(np.abs(predicted.detach().numpy() - tar.reshape(-1))))
     print('Correct direction', np.sum(np.multiply(predicted.detach().numpy(), tar.reshape(-1)) > 0))
 
-    print('Nonrobust mean', nonrobust.detach().numpy().mean(), 'Nonrobust > real', np.sum(nonrobust.detach().numpy() > tar.reshape(-1)))
+    print('Nonrobust mean', nonrobust.detach().numpy().mean(),
+          'Nonrobust > real', np.sum(nonrobust.detach().numpy() > tar.reshape(-1)))
     print('Nonrobust MAE', np.sum(np.abs(nonrobust.detach().numpy() - tar.reshape(-1))))
     print('Correct direction', np.sum(np.multiply(nonrobust.detach().numpy(), tar.reshape(-1)) > 0))
 
