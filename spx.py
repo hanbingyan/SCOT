@@ -51,7 +51,7 @@ def SP_sampler(bat_size, end_idx, hi=100, rand=True):
             res.append(x.copy())
     return np.array(res)
 
-sep_date = 1800
+sep_date = 1100
 print('The separate date is', Date[sep_date])
 print('Data from 100+seq days before this date are for training')
 print('Data from 100+seq days AFTER this date are for out-of-sample testing')
@@ -86,5 +86,6 @@ for ind in range(800):
 for param in list(obj_f.parameters()):
     param.requires_grad = False
 
-# dety.train(SP_sampler, obj_f, idx=sep_date, causal=False)
-randy.train(SP_sampler, gen_Y, obj_f, idx=sep_date, causal=True)
+# to reproduce the results in the paper, run each algo separately
+dety.train(SP_sampler, obj_f, idx=sep_date, causal=False)
+# randy.train(SP_sampler, gen_Y, obj_f, idx=sep_date, causal=False)

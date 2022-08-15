@@ -14,14 +14,13 @@ def modi_cost(x, y, h, M, lam, f, cost):
     '''
     # compute sum_{t=1}^{T-1} h[t]*(M[t+1]-M[t])
     DeltaM = M[:, 1:, :] - M[:, :-1, :]
-    # ht = h[:, :-1, :]
     time_steps = h.shape[1]
     sum_over_j = torch.sum(h[:, None, :, :] * DeltaM[None, :, :, :], -1)
     C_hM = torch.sum(sum_over_j, -1) / time_steps
 
     return f(y).repeat(x.shape[0], 1) - lam*cost(x, y) + C_hM
 
-
+######### Based on Xu's implementation https://github.com/tianlinxu312/cot-gan
 def compute_sinkhorn(x, y, h, M, lam, f, cost, eps=0.01, niter=20):
     """
     Given two emprical measures with n points each with locations x and y
@@ -34,24 +33,12 @@ def compute_sinkhorn(x, y, h, M, lam, f, cost, eps=0.01, niter=20):
     # The Sinkhorn algorithm takes as input three variables :
     C = modi_cost(x, y, h, M, lam, f, cost) # shape: [batch_size, batch_size]
 
-    # Add robustness
-    # C = torch.minimum(C, torch.tensor([5000]))
-    # both marginals are fixed with equal weights
-    # mu = Variable(1. / n * torch.cuda.FloatTensor(n).fill_(1), requires_grad=False)
-    # nu = Variable(1. / n * torch.cuda.FloatTensor(n).fill_(1), requires_grad=False)
+
     mu = 1. / n * torch.ones(n, device=x.device)
     nu = 1. / n * torch.ones(n, device=x.device)
 
-    # Parameters of the Sinkhorn algorithm.
-    # rho = 1  # (.5) **2          # unbalanced transport
-    # tau = -.8  # nesterov-like acceleration
-    # lam = rho / (rho + epsilon)  # Update exponent
-    thresh = 10**(-4)  # stopping criterion
 
-    # Elementary operations .....................................................................
-    # def ave(u, u1):
-    #     "Barycenter subroutine, used by kinetic acceleration through extrapolation."
-        # return tau * u + (1 - tau) * u1
+    thresh = 10**(-4)  # stopping criterion
 
     def M(u, v):
         "Modified cost for logarithmic updates"
@@ -70,9 +57,6 @@ def compute_sinkhorn(x, y, h, M, lam, f, cost, eps=0.01, niter=20):
         u1 = u  # useful to check the update
         u = epsilon * (torch.log(mu) - lse(M(u, v)).squeeze()) + u
         v = epsilon * (torch.log(nu) - lse(M(u, v).t()).squeeze()) + v
-        # accelerated unbalanced iterations
-        # u = ave( u, lam * ( epsilon * ( torch.log(mu) - lse(M(u,v)).squeeze()   ) + u ) )
-        # v = ave( v, lam * ( epsilon * ( torch.log(nu) - lse(M(u,v).t()).squeeze() ) + v ) )
         err = (u - u1).abs().sum()
 
         actual_nits += 1
@@ -93,16 +77,13 @@ def martingale_regularization(M, reg=100.0):
     This tensor represents the martingale penalization term denoted $p_M$
     '''
     m, t, j = M.shape
-    # m = torch.tensor(m).type(torch.FloatTensor)
-    # t = torch.tensor(m).type(torch.FloatTensor)
+
     # compute delta M matrix N
     N = M[:, 1:, :] - M[:, :-1, :]
     N_std = N / (torch.std(M, (0, 1)) + 1e-06)
 
-    # Compute \sum_i^m(\delta M)
     sum_m_std = torch.sum(N_std, 0) / m
-    # Compute martingale penalty: P_M1 =  \sum_i^T(|\sum_i^m(\delta M)|) * scaling_coef
+    # Compute martingale penalty
     sum_across_paths = torch.sum(torch.abs(sum_m_std)) / t
-    # the total pM term
     pm = reg * sum_across_paths
     return pm
